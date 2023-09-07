@@ -1,0 +1,52 @@
+---
+- name: Configure Cisco 2960 switches
+  hosts: switches
+  gather_facts: no
+  connection: network_cli
+  vars:
+    ansible_network_os: ios
+    ansible_become: yes
+    ansible_become_method: enable
+  tasks:
+    - name: Detect and shut unused ports
+      ios_command:
+        commands:
+          - show interface status | include notconnect
+      register: unused_ports
+
+    - name: Shut unused ports
+      ios_command:
+        commands:
+          - shutdown interface {{ item.split()[0] }}
+        prompt: '[confirm]'
+      with_items: "{{ unused_ports.stdout_lines }}"
+      when: "'notconnect' in item"
+
+    - name: Enable Port Security on used ports
+      ios_command:
+        commands:
+          - show interface status | include connected
+      register: used_ports
+
+    - name: Enable Port Security
+      ios_command:
+        commands:
+          - interface {{ item.split()[0] }}
+          - switchport port-security
+          - switchport port-security maximum 1
+          - switchport port-security violation shutdown
+      with_items: "{{ used_ports.stdout_lines }}"
+
+    - name: Enable ARP inspection
+      ios_command:
+        commands:
+          - ip arp inspection vlan all
+          - interface range GigabitEthernet0/1-48
+          - ip arp inspection trust
+          
+    - name: Enable DHCP snooping
+      ios_command:
+        commands:
+          - ip dhcp snooping
+          - interface range GigabitEthernet0/1-48
+          - ip dhcp snooping trust
